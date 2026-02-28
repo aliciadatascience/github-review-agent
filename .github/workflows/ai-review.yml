@@ -1,0 +1,145 @@
+# .github/workflows/ai-review.yml
+#
+# This workflow lives inside your TARGET REPO (the one being reviewed).
+# It triggers automatically on PR and push events, then calls your
+# AI agent (running as a GitHub Action) to review the code.
+#
+# HOW IT WORKS:
+#   GitHub Event fires (PR opened, push, etc.)
+#       → GitHub spins up an Ubuntu runner
+#       → Runner checks out your agent repo
+#       → Installs Python + dependencies
+#       → Runs main.py with the event context injected via env vars
+#       → Agent connects to GitHub MCP, reviews the PR, posts comments
+#
+# SETUP REQUIRED (one-time):
+#   In your TARGET repo → Settings → Secrets and variables → Actions:
+#     Add secret: HF_TOKEN        (your HuggingFace token)
+#   The GITHUB_TOKEN is provided automatically by GitHub Actions.
+
+name: AI Code Review Agent
+
+on:
+  # Trigger on PR events
+  pull_request:
+    types:
+      - opened          # New PR created
+      - synchronize     # New commits pushed to PR branch
+      - review_requested  # Someone requested a review
+
+  # Trigger on direct pushes (for commit checks)
+  push:
+    branches:
+      - main
+      - master
+      - develop
+    # Only run if actual code files changed (ignore docs-only pushes)
+    paths-ignore:
+      - '**.md'
+      - '.gitignore'
+      - 'docs/**'
+
+# Only one review per PR at a time — cancels in-progress if new commit pushed
+concurrency:
+  group: ai-review-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  ai-review:
+    name: AI Review Agent
+    runs-on: ubuntu-latest
+
+    # Required permissions for the agent to post reviews
+    permissions:
+      contents: read
+      pull-requests: write   # Post review comments and approvals
+      issues: write          # Post issue comments
+
+    steps:
+      # ----------------------------------------------------------------
+      # Step 1: Check out the TARGET repo (the code being reviewed)
+      # ----------------------------------------------------------------
+      - name: Checkout target repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history so agent can see all commits
+
+      # ----------------------------------------------------------------
+      # Step 2: Check out your AI agent repo
+      # The agent lives in a SEPARATE repo — we pull it in here.
+      # ----------------------------------------------------------------
+      - name: Checkout AI Review Agent
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ vars.AGENT_REPO }}   # e.g. "your-username/github-review-agent"
+          path: ai-agent                        # Checked out to ./ai-agent/
+          # If your agent repo is private, add a PAT secret:
+          # token: ${{ secrets.AGENT_REPO_TOKEN }}
+
+      # ----------------------------------------------------------------
+      # Step 3: Set up Python
+      # ----------------------------------------------------------------
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: ai-agent/requirements.txt
+
+      # ----------------------------------------------------------------
+      # Step 4: Install dependencies
+      # ----------------------------------------------------------------
+      - name: Install dependencies
+        run: |
+          cd ai-agent
+          pip install -r requirements.txt
+
+      # ----------------------------------------------------------------
+      # Step 5: Set up Docker for GitHub MCP Server
+      # (Ubuntu runners have Docker pre-installed)
+      # ----------------------------------------------------------------
+      - name: Pull GitHub MCP Server image
+        run: |
+          docker pull ghcr.io/github/github-mcp-server
+          echo "✅ GitHub MCP Server image ready"
+
+      # ----------------------------------------------------------------
+      # Step 6: Run the AI Review Agent
+      # Environment variables inject the GitHub context automatically.
+      # ----------------------------------------------------------------
+      - name: Run AI Review Agent
+        env:
+          # GitHub auth — GITHUB_TOKEN is auto-provided, has PR write access
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_OWNER: ${{ github.repository_owner }}
+          GITHUB_REPO: ${{ github.event.repository.name }}
+
+          # HuggingFace LLM
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HF_API_URL: https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.2
+
+          # Event context — tells the agent WHAT triggered this run
+          GH_EVENT_NAME: ${{ github.event_name }}
+          GH_EVENT_ACTION: ${{ github.event.action }}
+          GH_PR_NUMBER: ${{ github.event.pull_request.number }}
+          GH_COMMIT_SHA: ${{ github.sha }}
+
+          # Agent config
+          AUTO_MERGE_ENABLED: "false"    # Never auto-merge from CI
+          MIN_APPROVAL_SCORE: "0.7"
+          LOG_LEVEL: INFO
+
+        run: |
+          cd ai-agent
+          python main.py --ci
+
+      # ----------------------------------------------------------------
+      # Step 7: Upload logs as artifact (useful for debugging)
+      # ----------------------------------------------------------------
+      - name: Upload agent logs
+        if: always()   # Upload even if the agent step fails
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-review-logs-${{ github.run_number }}
+          path: ai-agent/logs/
+          retention-days: 7
