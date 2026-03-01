@@ -1,17 +1,3 @@
-"""
-tools/github_tools.py
-
-LangChain Tool wrappers around our GitHubMCPClient convenience methods.
-
-WHY THIS FILE EXISTS:
-  LangChain agents don't call functions directly — they choose from a list of
-  "Tools" with names and descriptions. The LLM reads the descriptions to decide
-  which tool to use. So we wrap each GitHub action as a LangChain Tool.
-  
-  The flow is:
-    LLM reads tool descriptions → decides which to call → 
-    LangChain executes the function → result fed back to LLM
-"""
 
 import json
 import logging
@@ -25,9 +11,6 @@ def create_github_tools(client: GitHubMCPClient) -> list[Tool]:
     """
     Build the list of LangChain Tools the agent can use.
     Each tool wraps one of our MCP client convenience methods.
-    
-    The description field is critical — the LLM reads it to decide
-    which tool to pick, so be specific and clear.
     """
 
     def _safe_json(data) -> str:

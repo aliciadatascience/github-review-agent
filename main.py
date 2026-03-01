@@ -1,24 +1,3 @@
-"""
-main.py
-
-Entry point for the GitHub AI Review Agent.
-
-MODES:
-  python main.py              → Review all open PRs once, then exit
-  python main.py --ci         → CI mode: reads GitHub Actions event context automatically
-  python main.py --watch      → Poll continuously for new PRs/events
-  python main.py --pr 42      → Review a specific PR by number
-  python main.py --list-tools → Show all available GitHub MCP tools
-
-ARCHITECTURE FLOW:
-  main.py
-    └── event_handler.py  (reads GitHub Actions env vars, decides what to do)
-    └── GitHubMCPClient   (connects to GitHub MCP server)
-         └── create_github_tools() (wraps MCP calls as LangChain Tools)
-              └── create_review_agent() (LangChain ReAct agent with LLM)
-                   └── run_pr_review() (executes the review task)
-"""
-
 import argparse
 import logging
 import sys
@@ -30,10 +9,6 @@ from mcp_client import GitHubMCPClient
 from tools import create_github_tools
 from agent import create_llm, create_review_agent, run_pr_review
 from agent.event_handler import parse_event_context, build_agent_task, ReviewMode
-
-# ============================================================
-# Logging Setup
-# ============================================================
 
 import os
 os.makedirs("logs", exist_ok=True)
@@ -71,9 +46,8 @@ def run_once(pr_number: int = None):
     except Exception as e:
         logger.error("Failed to connect to GitHub MCP Server: %s", e)
         logger.error(
-            "Make sure Docker or Node.js is installed:\n"
-            "  Docker: https://docs.docker.com/get-docker/\n"
-            "  Node:   https://nodejs.org/"
+            "Make sure Docker is installed:\n"
+            "  Docker: https://docs.docker.com/get-docker/"
         )
         return False
 

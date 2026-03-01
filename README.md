@@ -7,7 +7,6 @@ An AI agent that automatically reviews GitHub Pull Requests using LangChain + Hu
 ## How It Works
 
 ```
-Your Terminal
     └── main.py
          └── GitHubMCPClient          ← connects to GitHub MCP Server (Docker/npx)
               │    5 core functions:
@@ -36,9 +35,6 @@ The agent follows a **Thought → Action → Observation** loop:
 ```
 github-review-agent/          ← SEPARATE repo from the one you're reviewing
 │
-├── .env.example              ← Copy to .env and fill in your tokens
-├── .env                      ← Your secrets (NEVER commit this)
-├── .gitignore
 ├── requirements.txt
 ├── main.py                   ← Entry point — run this
 │
@@ -66,33 +62,26 @@ github-review-agent/          ← SEPARATE repo from the one you're reviewing
 ### Step 1: Prerequisites
 
 Install **one** of these (for running the GitHub MCP Server):
-- **Docker** (recommended): https://docs.docker.com/get-docker/
-- **Node.js** (alternative): https://nodejs.org/
+- **Docker** : https://docs.docker.com/get-docker/
+
 
 ### Step 2: Clone and install
 
 ```bash
-git clone <your-agent-repo-url>
+git clone <repo-url>
 cd github-review-agent
 
 python -m venv venv
-source venv/bin/activate      # Windows: venv\Scripts\activate
+source venv/bin/activate      
 
 pip install -r requirements.txt
 ```
 
 ### Step 3: Get your tokens
 
-**GitHub Personal Access Token:**
-1. Go to GitHub → Settings → Developer settings → Personal access tokens → Tokens (classic)
-2. Click "Generate new token"
-3. Select scopes: `repo`, `pull_requests`, `write:discussion`
-4. Copy the token (starts with `ghp_`)
+GitHub Personal Access Token
+HuggingFace Token
 
-**HuggingFace Token:**
-1. Go to https://huggingface.co/settings/tokens
-2. Create a new token with "Read" permission
-3. Copy the token (starts with `hf_`)
 
 ### Step 4: Configure .env
 
@@ -128,45 +117,11 @@ python main.py --list-tools
 
 ---
 
-## ⚠️ Important: LLM Model Note
-
-`distilgpt2` is a tiny text-completion model — it will not reason well for agent tasks. 
-
-For much better results, change `HF_API_URL` in your `.env` to:
-
-| Model | URL | Notes |
-|-------|-----|-------|
-| Mistral 7B Instruct | `.../mistralai/Mistral-7B-Instruct-v0.2` | Best free option |
-| Zephyr 7B | `.../HuggingFaceH4/zephyr-7b-beta` | Also excellent |
-| Llama 2 Chat | `.../meta-llama/Llama-2-7b-chat-hf` | Needs HF approval |
-
-Just update the URL — no code changes needed.
-
----
-
-## How the MCP Client Works
-
-The `GitHubMCPClient` implements exactly 5 core functions:
-
-| Function | Purpose |
-|----------|---------|
-| `connect()` | Launches GitHub MCP server (Docker/npx) and handshakes |
-| `list_tools()` | Asks MCP server what tools exist — discovers dynamically |
-| `call_tool(name, args)` | The real worker: sends JSON-RPC, handles retries, parses response |
-| convenience wrappers | `get_pull_request()`, `create_review()`, etc. — readable aliases for `call_tool()` |
-| `close()` | Stops the MCP server process and cleans up |
-
-The key insight: `call_tool()` does almost all the heavy lifting (connection resilience, response parsing, retries). The actual MCP call is just one line:
-```python
-self._transport.send_request("tools/call", {"name": tool_name, "arguments": arguments})
-```
-
----
 
 ## Troubleshooting
 
-**"Neither Docker nor npx found"**  
-→ Install Docker or Node.js (see Step 1)
+**"Docker not found"**  
+→ Install Docker 
 
 **"Missing required environment variables"**  
 → Check your `.env` file has all four required values

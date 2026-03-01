@@ -16,13 +16,13 @@ class Settings:
     GITHUB_REPO: str = os.getenv("GITHUB_REPO", "")
 
     # HuggingFace LLM
-    HF_API_URL: str = os.getenv("HF_API_URL", "https://api-inference.huggingface.co/models/distilgpt2")
+    HF_API_URL: str = os.getenv("HF_API_URL", "HF_API_URL=https://router.huggingface.co/hf-inference/models/mistralai/Mistral-7B-Instruct-v0.3")
     HF_TOKEN: str = os.getenv("HF_TOKEN", "")
 
     # Agent behavior
-    POLL_INTERVAL_SECONDS: int = int(os.getenv("POLL_INTERVAL_SECONDS", "60"))
+    POLL_INTERVAL_SECONDS: int = int(os.getenv("POLL_INTERVAL_SECONDS", "600"))
     AUTO_MERGE_ENABLED: bool = os.getenv("AUTO_MERGE_ENABLED", "false").lower() == "true"
-    MIN_APPROVAL_SCORE: float = float(os.getenv("MIN_APPROVAL_SCORE", "0.7"))
+    MIN_APPROVAL_SCORE: float = float(os.getenv("MIN_APPROVAL_SCORE", "0.85"))
 
     # Logging
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")

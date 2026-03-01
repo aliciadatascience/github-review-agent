@@ -1,20 +1,3 @@
-"""
-mcp_client/github_mcp_client.py
-
-The MCP Client — this is the bridge between your agent and the GitHub MCP Server.
-It implements the 5 core functions you learned about:
-  1. connect()       - Open connection to GitHub MCP Server
-  2. list_tools()    - Dynamically discover available GitHub tools
-  3. call_tool()     - The real worker: sends JSON-RPC and returns results
-  4. convenience wrappers - Friendly, readable methods built on call_tool()
-  5. close()         - Clean up the connection
-
-WHY THIS DESIGN:
-  - Your agent code never touches raw JSON-RPC
-  - If GitHub MCP adds new tools, list_tools() discovers them automatically
-  - All GitHub operations go through one tested, resilient path (call_tool)
-"""
-
 import json
 import logging
 import subprocess
@@ -35,14 +18,6 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 
 class MCPStdioTransport:
-    """
-    Manages the subprocess running the GitHub MCP server and communicates
-    with it over stdin/stdout using JSON-RPC 2.0 protocol.
-    
-    The GitHub MCP server is a separate process (Docker or npx) that we
-    launch and talk to via pipes — this is the MCP stdio transport standard.
-    """
-
     def __init__(self, command: list[str], env: dict = None):
         self.command = command
         self.env = env or {}
@@ -121,7 +96,6 @@ class MCPStdioTransport:
 
 # =============================================================================
 # SECTION 2: The Main MCP Client
-# This is what the rest of your code interacts with.
 # =============================================================================
 
 class GitHubMCPClient:
