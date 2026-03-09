@@ -1,25 +1,3 @@
-"""
-agent/review_agent.py
-
-The LangChain AI Agent that reviews GitHub PRs.
-
-HOW IT WORKS:
-  1. We give the LLM a list of Tools (GitHub actions it can take)
-  2. We give it a system prompt explaining its job as a code reviewer
-  3. LangChain's ReAct loop handles the reasoning:
-       Thought: "I need to check the PR files"
-       Action: get_pull_request_files
-       Observation: [list of changed files]
-       Thought: "The PR looks good, I'll approve it"
-       Action: approve_pull_request
-       Final Answer: "PR #42 approved"
-  4. This repeats until the agent reaches a final answer
-
-THE PROMPT IS THE BRAIN:
-  distilgpt2 won't follow complex instructions well. With a better model
-  (Mistral, Zephyr), the agent will reason much more reliably.
-"""
-
 import logging
 from langchain.agents import AgentExecutor, create_react_agent
 from langchain.tools import Tool
@@ -29,32 +7,32 @@ from langchain_core.prompts import PromptTemplate
 logger = logging.getLogger(__name__)
 
 
-# The system prompt that defines how the agent thinks about PR reviews
-REVIEW_AGENT_PROMPT = """You are an expert AI code reviewer for a GitHub repository.
-Your job is to review pull requests (PRs), check commits, and decide whether to approve or request changes.
+REVIEW_AGENT_PROMPT = """You are an AI code reviewer for GitHub pull requests.
+Complete the task using the available tools. Follow the steps in exact order.
 
-You have access to the following tools:
+Available tools:
 {tools}
 
-Use this EXACT format for every response:
+Use this EXACT format — no deviations:
 
-Question: the input question you must answer
-Thought: think about what you need to do next
-Action: the action to take, must be one of [{tool_names}]
-Action Input: the input to the action
-Observation: the result of the action
-... (repeat Thought/Action/Action Input/Observation as needed)
-Thought: I now know the final answer
-Final Answer: your conclusion about the PR review
+Question: the task you must complete
+Thought: what step am I on and what do I do next
+Action: exactly one tool from [{tool_names}]
+Action Input: the input to the tool (PR number only, no quotes)
+Observation: the result of the tool
+Thought: what did I learn, what is next step
+Action: next tool
+Action Input: input
+Observation: result
+Thought: I have completed all steps, I know the final answer
+Final Answer: summary of what you did and what decision was made on the PR
 
-REVIEW GUIDELINES:
-- Always start by listing open PRs to see what needs review
-- For each PR, check: title/description, changed files, commit messages
-- APPROVE if: changes are clear, commits are meaningful, no obvious bugs
-- REQUEST CHANGES if: missing tests, unclear commits, risky changes, bad code
-- COMMENT if: you have suggestions but the PR is generally acceptable
-- Be specific in your feedback — explain WHY you made your decision
-- Never approve a PR you haven't actually examined
+CRITICAL RULES:
+- Never add quotes around PR numbers — use 9 not '9'
+- Never repeat a step you already completed
+- Never call list_open_pull_requests if you already know the PR number
+- Move to Final Answer as soon as all steps are done
+- If a tool returns an error, note it and move to the next step
 
 Begin!
 
@@ -62,33 +40,28 @@ Question: {input}
 Thought: {agent_scratchpad}"""
 
 
-def create_review_agent(llm: BaseLanguageModel, tools: list[Tool]) -> AgentExecutor:
-    """
-    Build and return the LangChain ReAct agent executor.
-    
-    ReAct = Reasoning + Acting
-    The agent alternates between thinking (Thought) and doing (Action)
-    until it reaches a conclusion.
-    """
+def create_review_agent(
+    llm: BaseLanguageModel,
+    tools: list[Tool]
+) -> AgentExecutor:
+
     prompt = PromptTemplate(
         input_variables=["input", "agent_scratchpad", "tools", "tool_names"],
         template=REVIEW_AGENT_PROMPT,
     )
 
-    # Create the ReAct agent (Reasoning + Acting loop)
     agent = create_react_agent(
         llm=llm,
         tools=tools,
         prompt=prompt,
     )
 
-    # AgentExecutor runs the ReAct loop and handles tool calls
     executor = AgentExecutor(
         agent=agent,
         tools=tools,
-        verbose=True,           # Print Thought/Action/Observation to console
-        max_iterations=20,      # Stop after 10 reasoning steps (prevents infinite loops)
-        handle_parsing_errors=True,  # Don't crash on malformed LLM output
+        verbose=True,
+        max_iterations=8,            # 4 steps + 4 buffer = enough
+        handle_parsing_errors=True,
         return_intermediate_steps=True,
     )
 
@@ -96,29 +69,25 @@ def create_review_agent(llm: BaseLanguageModel, tools: list[Tool]) -> AgentExecu
     return executor
 
 
-def run_pr_review(executor: AgentExecutor, pr_number: int = None) -> dict:
-    """
-    Run the agent to review pull requests.
-    
-    If pr_number is given, review that specific PR.
-    Otherwise, review all open PRs.
-    """
+def run_pr_review(
+    executor: AgentExecutor,
+    pr_number: int = None
+) -> dict:
+
     if pr_number:
-        task = (
-            f"Please review pull request #{pr_number}. "
-            f"Check the PR details, files changed, and commits. "
-            f"Then decide: should we APPROVE it, REQUEST CHANGES, or just leave a COMMENT? "
-            f"Give specific reasons for your decision."
-        )
+        task = f"""Review pull request #{pr_number}.
+Step 1: get_pull_request_details — input: {pr_number}
+Step 2: get_pull_request_files — input: {pr_number}
+Step 3: get_pull_request_commits — input: {pr_number}
+Step 4: approve_pull_request OR request_changes_on_pr — input: {pr_number}|your reason
+Stop after step 4."""
     else:
         task = (
-            "Please review all open pull requests in the repository. "
-            "For each PR: check the details, files changed, and commits. "
-            "Then decide for each: APPROVE, REQUEST CHANGES, or COMMENT. "
-            "Give specific reasons for each decision."
+            "List open pull requests then review the most recent one. "
+            "Check details, files, commits, then approve or request changes."
         )
 
-    logger.info("Starting PR review task: %s", task[:80])
+    logger.info("Starting PR review: %s", task[:80])
 
     try:
         result = executor.invoke({"input": task})
