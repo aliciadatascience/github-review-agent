@@ -168,6 +168,7 @@ class GitHubMCPClient:
                 "--rm",           # Remove container when done
                 "-i",             # Interactive (required for stdio)
                 "-e", "GITHUB_TOKEN",
+                "-e", "GITHUB_PERSONAL_ACCESS_TOKEN", 
                 "ghcr.io/github/github-mcp-server",
             ]
             logger.info("Using Docker to run GitHub MCP Server")
