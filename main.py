@@ -201,6 +201,10 @@ def watch_mode():
 
 def list_tools_mode():
     """Connect and print all available GitHub MCP tools."""
+    with GitHubMCPClient(...) as client:
+        tools = client.list_tools()
+        for tool in tools:
+            print(f"  - {tool['name']}: {tool.get('description', '')[:60]}")
     client = GitHubMCPClient()
     client.connect()
     try:
