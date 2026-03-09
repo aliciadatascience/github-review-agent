@@ -87,7 +87,7 @@ def create_review_agent(llm: BaseLanguageModel, tools: list[Tool]) -> AgentExecu
         agent=agent,
         tools=tools,
         verbose=True,           # Print Thought/Action/Observation to console
-        max_iterations=10,      # Stop after 10 reasoning steps (prevents infinite loops)
+        max_iterations=20,      # Stop after 10 reasoning steps (prevents infinite loops)
         handle_parsing_errors=True,  # Don't crash on malformed LLM output
         return_intermediate_steps=True,
     )
