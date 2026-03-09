@@ -7,7 +7,7 @@ from datetime import datetime
 from config.settings import settings
 from mcp_client import GitHubMCPClient
 from tools import create_github_tools
-from agent import create_llm, create_review_agent, run_pr_review
+from agent import create_llm_with_retry, create_review_agent, run_pr_review
 from agent.event_handler import parse_event_context, build_agent_task, ReviewMode
 
 import os
