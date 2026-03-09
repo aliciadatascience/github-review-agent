@@ -48,24 +48,44 @@ def create_github_tools(client: GitHubMCPClient) -> list[Tool]:
     # Tool: Get PR details
     # ------------------------------------------------------------------
     def get_pr_details(pr_number: str) -> str:
-        """Get detailed information about a specific pull request."""
         try:
-            pr = client.get_pull_request(int(pr_number.strip()))
-            if not pr:
-                return f"PR #{pr_number} not found."
+            # strip quotes the LLM sometimes adds
+            clean_number = str(pr_number).strip().strip("'\"")
+            result = client.get_pull_request(int(clean_number))
+            
+            # handle both list and dict response from MCP
+            if isinstance(result, list):
+                result = result[0] if result else {}
+            
             return (
-                f"PR #{pr.get('number')}: {pr.get('title')}\n"
-                f"Author: {pr.get('user', {}).get('login')}\n"
-                f"State: {pr.get('state')}\n"
-                f"Mergeable: {pr.get('mergeable')}\n"
-                f"Commits: {pr.get('commits')}\n"
-                f"Additions: +{pr.get('additions')} / Deletions: -{pr.get('deletions')}\n"
-                f"Changed files: {pr.get('changed_files')}\n"
-                f"Body:\n{pr.get('body', '(no description)')}"
+                f"PR #{result.get('number', 'unknown')}: "
+                f"{result.get('title', 'no title')} | "
+                f"Author: {result.get('user', {}).get('login', 'unknown')} | "
+                f"State: {result.get('state', 'unknown')} | "
+                f"Files changed: {result.get('changed_files', 'unknown')}"
             )
         except Exception as e:
-            logger.error("get_pr_details error: %s", e)
             return f"Error getting PR details: {e}"
+            
+    # def get_pr_details(pr_number: str) -> str:
+    #     """Get detailed information about a specific pull request."""
+    #     try:
+    #         pr = client.get_pull_request(int(pr_number.strip()))
+    #         if not pr:
+    #             return f"PR #{pr_number} not found."
+    #         return (
+    #             f"PR #{pr.get('number')}: {pr.get('title')}\n"
+    #             f"Author: {pr.get('user', {}).get('login')}\n"
+    #             f"State: {pr.get('state')}\n"
+    #             f"Mergeable: {pr.get('mergeable')}\n"
+    #             f"Commits: {pr.get('commits')}\n"
+    #             f"Additions: +{pr.get('additions')} / Deletions: -{pr.get('deletions')}\n"
+    #             f"Changed files: {pr.get('changed_files')}\n"
+    #             f"Body:\n{pr.get('body', '(no description)')}"
+    #         )
+    #     except Exception as e:
+    #         logger.error("get_pr_details error: %s", e)
+    #         return f"Error getting PR details: {e}"
 
     # ------------------------------------------------------------------
     # Tool: Get PR file changes/diff
