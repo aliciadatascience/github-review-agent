@@ -25,10 +25,16 @@ def create_github_tools(client: GitHubMCPClient) -> list[Tool]:
     def list_open_prs(input_str: str = "") -> str:
         try:
             prs = client.list_pull_requests(state="open")
+            # handle string response
+            if isinstance(prs, str):
+                return prs
             if not prs:
                 return "No open pull requests found."
             summaries = []
             for pr in (prs if isinstance(prs, list) else [prs]):
+                if isinstance(pr, str):
+                    summaries.append(pr)
+                    continue
                 summaries.append(
                     f"PR #{pr.get('number')}: {pr.get('title')} "
                     f"| Author: {pr.get('user', {}).get('login', '?')} "
@@ -44,6 +50,9 @@ def create_github_tools(client: GitHubMCPClient) -> list[Tool]:
     def get_pr_details(pr_number: str) -> str:
         try:
             result = client.get_pull_request(clean_int(pr_number))
+            # handle string response
+            if isinstance(result, str):
+                return f"PR details: {result[:500]}"
             if isinstance(result, list):
                 result = result[0] if result else {}
             return (
