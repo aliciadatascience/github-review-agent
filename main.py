@@ -60,7 +60,7 @@ def run_once(pr_number: int = None):
         langchain_tools = create_github_tools(client)
 
         # Step 4: Set up the LLM
-        llm = create_llm()
+        llm = create_llm_with_retry()
 
         # Step 5: Create the ReAct agent
         executor = create_review_agent(llm=llm, tools=langchain_tools)
