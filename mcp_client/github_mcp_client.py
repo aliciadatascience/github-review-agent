@@ -267,3 +267,85 @@ class GitHubMCPClient:
         """List recent commits — list_commits still exists."""
         params = {
             "owner": self.owner,
+            "repo": self.repo,
+            "perPage": per_page,
+        }
+        if branch:
+            params["sha"] = branch
+        return self.call_tool("list_commits", params)
+
+    def create_review(
+        self,
+        pr_number: int,
+        body: str,
+        event: str = "COMMENT",
+        comments: list = None,
+    ) -> dict:
+        """
+        Submit a PR review — uses pull_request_review_write.
+        event: APPROVE, REQUEST_CHANGES, or COMMENT
+        """
+        params = {
+            "owner": self.owner,
+            "repo": self.repo,
+            "pullNumber": pr_number,
+            "body": body,
+            "event": event,
+            "method": "submit_review",
+        }
+        if comments:
+            params["comments"] = comments
+
+        logger.info("Creating review on PR #%d: event=%s", pr_number, event)
+        return self.call_tool("pull_request_review_write", params)
+
+    def add_issue_comment(self, pr_number: int, body: str) -> dict:
+        """Add a general comment to a PR/issue — add_issue_comment still exists."""
+        return self.call_tool("add_issue_comment", {
+            "owner": self.owner,
+            "repo": self.repo,
+            "issueNumber": pr_number,
+            "body": body,
+        })
+
+    def merge_pull_request(
+        self,
+        pr_number: int,
+        commit_title: str = None,
+        merge_method: str = "merge",
+    ) -> dict:
+        """Merge a PR — merge_pull_request still exists."""
+        params = {
+            "owner": self.owner,
+            "repo": self.repo,
+            "pullNumber": pr_number,
+            "mergeMethod": merge_method,
+        }
+        if commit_title:
+            params["commitTitle"] = commit_title
+        logger.info("Merging PR #%d via %s", pr_number, merge_method)
+        return self.call_tool("merge_pull_request", params)
+
+    def get_repository_info(self) -> dict:
+        """Get basic repo info."""
+        return self.call_tool("get_repository", {
+            "owner": self.owner,
+            "repo": self.repo,
+        })
+
+    # =========================================================================
+    # CORE FUNCTION 5: close()
+    # =========================================================================
+
+    def close(self):
+        if self._transport:
+            self._transport.stop()
+            self._initialized = False
+            logger.info("MCP client connection closed")
+
+    def __enter__(self):
+        self.connect()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
