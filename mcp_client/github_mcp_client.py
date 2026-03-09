@@ -229,13 +229,19 @@ class GitHubMCPClient:
     # =========================================================================
 
     def get_pull_request(self, pr_number: int) -> dict:
-        """Get full details of a pull request — uses pull_request_read."""
-        return self.call_tool("pull_request_read", {
+        result = self.call_tool("pull_request_read", {
             "owner": self.owner,
             "repo": self.repo,
             "pullNumber": pr_number,
             "method": "get",
         })
+        # new tool returns string — parse it back to dict
+        if isinstance(result, str):
+            try:
+                return json.loads(result)
+            except json.JSONDecodeError:
+                return {"raw": result}
+        return result
 
     def list_pull_requests(self, state: str = "open") -> list:
         """List pull requests — uses list_pull_requests (still exists)."""
@@ -246,22 +252,33 @@ class GitHubMCPClient:
         })
 
     def get_pull_request_diff(self, pr_number: int) -> list:
-        """Get files changed in a PR — uses pull_request_read with get_files."""
-        return self.call_tool("pull_request_read", {
+        result = self.call_tool("pull_request_read", {
             "owner": self.owner,
             "repo": self.repo,
             "pullNumber": pr_number,
             "method": "get_files",
         })
+        if isinstance(result, str):
+            try:
+                return json.loads(result)
+            except json.JSONDecodeError:
+                return [{"filename": line, "status": "?", "additions": 0, "deletions": 0}
+                        for line in result.splitlines() if line.strip()]
+        return result
 
     def get_pull_request_commits(self, pr_number: int) -> list:
-        """Get commits in a PR — uses pull_request_read with get_commits."""
-        return self.call_tool("pull_request_read", {
+        result = self.call_tool("pull_request_read", {
             "owner": self.owner,
             "repo": self.repo,
             "pullNumber": pr_number,
             "method": "get_commits",
         })
+        if isinstance(result, str):
+            try:
+                return json.loads(result)
+            except json.JSONDecodeError:
+                return [{"sha": "", "commit": {"message": result, "author": {"name": "?"}}}]
+        return result
 
     def list_commits(self, branch: str = None, per_page: int = 10) -> list:
         """List recent commits — list_commits still exists."""
