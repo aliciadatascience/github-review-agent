@@ -7,39 +7,72 @@ from mcp_client import GitHubMCPClient
 
 logger = logging.getLogger(__name__)
 
-# GitHub API base URL
 GITHUB_API = "https://api.github.com"
 
 
 def create_github_tools(client: GitHubMCPClient) -> list[Tool]:
 
-    # ── shared helpers ────────────────────────────────────────────────
     def clean_int(val) -> int:
         return int(str(val).strip().strip("'\""))
 
+    def owner_repo() -> tuple:
+        from config.settings import settings
+        return settings.GITHUB_OWNER, settings.GITHUB_REPO
+
     def gh_headers() -> dict:
-        token = os.getenv("GITHUB_TOKEN") or os.getenv("GITHUB_PERSONAL_ACCESS_TOKEN")
+        """Try every possible token env var name."""
+        token = (
+            os.getenv("GITHUB_PERSONAL_ACCESS_TOKEN") or
+            os.getenv("GH_PAT") or
+            os.getenv("GITHUB_TOKEN")
+        )
+        logger.info("GitHub token found: %s", "YES" if token else "NO — all env vars empty")
+        if not token:
+            raise ValueError(
+                "No GitHub token found. Checked: "
+                "GITHUB_PERSONAL_ACCESS_TOKEN, GH_PAT, GITHUB_TOKEN"
+            )
         return {
             "Authorization": f"Bearer {token}",
             "Accept": "application/vnd.github+json",
             "X-GitHub-Api-Version": "2022-11-28",
         }
 
-    def owner_repo() -> tuple:
-        from config.settings import settings
-        return settings.GITHUB_OWNER, settings.GITHUB_REPO
+    def safe_api_call(url: str) -> dict | list | None:
+        """Make a GitHub API call with full error logging."""
+        try:
+            headers = gh_headers()
+            response = requests.get(url, headers=headers, timeout=15)
+            logger.info("API %s → status %d", url, response.status_code)
 
-    # ── Tool: List open PRs — direct GitHub API ───────────────────────
+            if response.status_code == 401:
+                raise ValueError("401 Unauthorized — token is invalid or expired")
+            if response.status_code == 403:
+                raise ValueError("403 Forbidden — token lacks required permissions")
+            if response.status_code == 404:
+                raise ValueError(f"404 Not Found — URL: {url}")
+            if response.status_code != 200:
+                raise ValueError(f"HTTP {response.status_code}: {response.text[:200]}")
+
+            data = response.json()
+            if data is None:
+                raise ValueError("GitHub API returned null response")
+            return data
+
+        except ValueError:
+            raise
+        except Exception as e:
+            raise ValueError(f"API call failed: {e}")
+
+    # ── Tool: List open PRs ───────────────────────────────────────────
     def list_open_prs(input_str: str = "") -> str:
         try:
             owner, repo = owner_repo()
-            url = f"{GITHUB_API}/repos/{owner}/{repo}/pulls?state=open&per_page=10"
-            response = requests.get(url, headers=gh_headers(), timeout=15)
-            prs = response.json()
+            prs = safe_api_call(
+                f"{GITHUB_API}/repos/{owner}/{repo}/pulls?state=open&per_page=10"
+            )
             if not prs:
                 return "No open pull requests found."
-            if isinstance(prs, dict) and "message" in prs:
-                return f"GitHub API error: {prs['message']}"
             summaries = []
             for pr in prs:
                 summaries.append(
@@ -53,16 +86,14 @@ def create_github_tools(client: GitHubMCPClient) -> list[Tool]:
             logger.error("list_open_prs error: %s", e)
             return f"Error listing PRs: {e}"
 
-    # ── Tool: Get PR details — direct GitHub API ──────────────────────
+    # ── Tool: Get PR details ──────────────────────────────────────────
     def get_pr_details(pr_number: str) -> str:
         try:
             owner, repo = owner_repo()
             num = clean_int(pr_number)
-            url = f"{GITHUB_API}/repos/{owner}/{repo}/pulls/{num}"
-            response = requests.get(url, headers=gh_headers(), timeout=15)
-            pr = response.json()
-            if "message" in pr:
-                return f"GitHub API error: {pr['message']}"
+            pr = safe_api_call(
+                f"{GITHUB_API}/repos/{owner}/{repo}/pulls/{num}"
+            )
             return (
                 f"PR #{pr.get('number')}: {pr.get('title')} | "
                 f"Author: {pr.get('user', {}).get('login', 'unknown')} | "
@@ -76,16 +107,14 @@ def create_github_tools(client: GitHubMCPClient) -> list[Tool]:
             logger.error("get_pr_details error: %s", e)
             return f"Error getting PR details: {e}"
 
-    # ── Tool: Get PR files — direct GitHub API ────────────────────────
+    # ── Tool: Get PR files ────────────────────────────────────────────
     def get_pr_files(pr_number: str) -> str:
         try:
             owner, repo = owner_repo()
             num = clean_int(pr_number)
-            url = f"{GITHUB_API}/repos/{owner}/{repo}/pulls/{num}/files"
-            response = requests.get(url, headers=gh_headers(), timeout=15)
-            files = response.json()
-            if isinstance(files, dict) and "message" in files:
-                return f"GitHub API error: {files['message']}"
+            files = safe_api_call(
+                f"{GITHUB_API}/repos/{owner}/{repo}/pulls/{num}/files"
+            )
             if not files:
                 return "No files changed."
             summaries = []
@@ -100,16 +129,14 @@ def create_github_tools(client: GitHubMCPClient) -> list[Tool]:
             logger.error("get_pr_files error: %s", e)
             return f"Error getting PR files: {e}"
 
-    # ── Tool: Get PR commits — direct GitHub API ──────────────────────
+    # ── Tool: Get PR commits ──────────────────────────────────────────
     def get_pr_commits(pr_number: str) -> str:
         try:
             owner, repo = owner_repo()
             num = clean_int(pr_number)
-            url = f"{GITHUB_API}/repos/{owner}/{repo}/pulls/{num}/commits"
-            response = requests.get(url, headers=gh_headers(), timeout=15)
-            commits = response.json()
-            if isinstance(commits, dict) and "message" in commits:
-                return f"GitHub API error: {commits['message']}"
+            commits = safe_api_call(
+                f"{GITHUB_API}/repos/{owner}/{repo}/pulls/{num}/commits"
+            )
             if not commits:
                 return "No commits found."
             lines = []
@@ -123,7 +150,7 @@ def create_github_tools(client: GitHubMCPClient) -> list[Tool]:
             logger.error("get_pr_commits error: %s", e)
             return f"Error getting PR commits: {e}"
 
-    # ── Tool: Approve PR — uses MCP for writing ───────────────────────
+    # ── Tool: Approve PR ──────────────────────────────────────────────
     def approve_pr(input_str: str) -> str:
         try:
             parts = input_str.split("|", 1)
@@ -135,7 +162,7 @@ def create_github_tools(client: GitHubMCPClient) -> list[Tool]:
             logger.error("approve_pr error: %s", e)
             return f"Error approving PR: {e}"
 
-    # ── Tool: Request changes — uses MCP for writing ──────────────────
+    # ── Tool: Request changes ─────────────────────────────────────────
     def request_changes(input_str: str) -> str:
         try:
             parts = input_str.split("|", 1)
@@ -147,7 +174,7 @@ def create_github_tools(client: GitHubMCPClient) -> list[Tool]:
             logger.error("request_changes error: %s", e)
             return f"Error requesting changes: {e}"
 
-    # ── Tool: Leave comment — uses MCP for writing ────────────────────
+    # ── Tool: Leave comment ───────────────────────────────────────────
     def leave_comment(input_str: str) -> str:
         try:
             parts = input_str.split("|", 1)
@@ -159,15 +186,13 @@ def create_github_tools(client: GitHubMCPClient) -> list[Tool]:
             logger.error("leave_comment error: %s", e)
             return f"Error leaving comment: {e}"
 
-    # ── Tool: List recent commits — direct GitHub API ─────────────────
+    # ── Tool: List recent commits ─────────────────────────────────────
     def list_recent_commits(input_str: str = "") -> str:
         try:
             owner, repo = owner_repo()
-            url = f"{GITHUB_API}/repos/{owner}/{repo}/commits?per_page=5"
-            response = requests.get(url, headers=gh_headers(), timeout=15)
-            commits = response.json()
-            if isinstance(commits, dict) and "message" in commits:
-                return f"GitHub API error: {commits['message']}"
+            commits = safe_api_call(
+                f"{GITHUB_API}/repos/{owner}/{repo}/commits?per_page=5"
+            )
             if not commits:
                 return "No commits found."
             lines = []
@@ -192,17 +217,17 @@ def create_github_tools(client: GitHubMCPClient) -> list[Tool]:
         Tool(
             name="get_pull_request_details",
             func=get_pr_details,
-            description="Get details about a PR. Input: PR number only. Example: 15",
+            description="Get details about a PR. Input: PR number only. Example: 12",
         ),
         Tool(
             name="get_pull_request_files",
             func=get_pr_files,
-            description="Get files changed in a PR. Input: PR number only. Example: 15",
+            description="Get files changed in a PR. Input: PR number only. Example: 12",
         ),
         Tool(
             name="get_pull_request_commits",
             func=get_pr_commits,
-            description="Get commits in a PR. Input: PR number only. Example: 15",
+            description="Get commits in a PR. Input: PR number only. Example: 12",
         ),
         Tool(
             name="approve_pull_request",
@@ -210,7 +235,7 @@ def create_github_tools(client: GitHubMCPClient) -> list[Tool]:
             description=(
                 "Approve a pull request. "
                 "Input format: pr_number|comment "
-                "Example: 15|LGTM, tests present and commits are clean."
+                "Example: 12|LGTM, small doc change, safe to merge."
             ),
         ),
         Tool(
@@ -219,7 +244,7 @@ def create_github_tools(client: GitHubMCPClient) -> list[Tool]:
             description=(
                 "Request changes on a pull request. "
                 "Input format: pr_number|reason "
-                "Example: 15|Missing unit tests for the new function."
+                "Example: 12|Missing unit tests."
             ),
         ),
         Tool(
@@ -228,12 +253,12 @@ def create_github_tools(client: GitHubMCPClient) -> list[Tool]:
             description=(
                 "Leave a neutral comment on a pull request. "
                 "Input format: pr_number|comment "
-                "Example: 15|Good approach, consider adding docstrings."
+                "Example: 12|Good approach, consider adding docstrings."
             ),
         ),
         Tool(
             name="list_recent_commits",
             func=list_recent_commits,
-            description="List 5 most recent commits on default branch. No input required.",
+            description="List 5 most recent commits. No input required.",
         ),
     ]
