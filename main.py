@@ -114,7 +114,7 @@ def ci_mode():
         client.list_tools()
 
         langchain_tools = create_github_tools(client)
-        llm = create_llm()
+        llm = create_llm_with_retry()
         executor = create_review_agent(llm=llm, tools=langchain_tools)
 
         logger.info("Running task: %s", task[:120])
