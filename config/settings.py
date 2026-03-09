@@ -15,9 +15,13 @@ class Settings:
     GITHUB_OWNER: str = os.getenv("GITHUB_OWNER", "")
     GITHUB_REPO: str = os.getenv("GITHUB_REPO", "")
 
+    # Groq LLM (replaces HuggingFace)
+    GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "")
+    GROQ_MODEL: str = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
+    
     # HuggingFace LLM
-    HF_API_URL: str = os.getenv("HF_API_URL", "HF_API_URL=https://router.huggingface.co/hf-inference/models/mistralai/Mistral-7B-Instruct-v0.3")
-    HF_TOKEN: str = os.getenv("HF_TOKEN", "")
+    # HF_API_URL: str = os.getenv("HF_API_URL", "HF_API_URL=https://router.huggingface.co/hf-inference/models/mistralai/Mistral-7B-Instruct-v0.3")
+    # HF_TOKEN: str = os.getenv("HF_TOKEN", "")
 
     # Agent behavior
     POLL_INTERVAL_SECONDS: int = int(os.getenv("POLL_INTERVAL_SECONDS", "600"))
@@ -37,8 +41,10 @@ class Settings:
             missing.append("GITHUB_OWNER")
         if not self.GITHUB_REPO:
             missing.append("GITHUB_REPO")
-        if not self.HF_TOKEN:
-            missing.append("HF_TOKEN")
+        if not self.GROQ_API_KEY:          # ← replaces HF_TOKEN check
+            missing.append("GROQ_API_KEY")
+        # if not self.HF_TOKEN:
+        #     missing.append("HF_TOKEN")
         if missing:
             raise EnvironmentError(
                 f"Missing required environment variables: {', '.join(missing)}\n"
