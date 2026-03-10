@@ -20,7 +20,6 @@ def create_github_tools(client: GitHubMCPClient) -> list[Tool]:
         return settings.GITHUB_OWNER, settings.GITHUB_REPO
 
     def gh_headers() -> dict:
-        """Try every possible token env var name."""
         token = (
             os.getenv("GITHUB_PERSONAL_ACCESS_TOKEN") or
             os.getenv("GH_PAT") or
@@ -38,13 +37,11 @@ def create_github_tools(client: GitHubMCPClient) -> list[Tool]:
             "X-GitHub-Api-Version": "2022-11-28",
         }
 
-    def safe_api_call(url: str) -> dict | list | None:
-        """Make a GitHub API call with full error logging."""
+    def safe_api_call(url: str):
         try:
             headers = gh_headers()
             response = requests.get(url, headers=headers, timeout=15)
             logger.info("API %s → status %d", url, response.status_code)
-
             if response.status_code == 401:
                 raise ValueError("401 Unauthorized — token is invalid or expired")
             if response.status_code == 403:
@@ -53,12 +50,10 @@ def create_github_tools(client: GitHubMCPClient) -> list[Tool]:
                 raise ValueError(f"404 Not Found — URL: {url}")
             if response.status_code != 200:
                 raise ValueError(f"HTTP {response.status_code}: {response.text[:200]}")
-
             data = response.json()
             if data is None:
                 raise ValueError("GitHub API returned null response")
             return data
-
         except ValueError:
             raise
         except Exception as e:
@@ -75,11 +70,14 @@ def create_github_tools(client: GitHubMCPClient) -> list[Tool]:
                 return "No open pull requests found."
             summaries = []
             for pr in prs:
+                user = pr.get("user") or {}
+                head = pr.get("head") or {}
+                base = pr.get("base") or {}
                 summaries.append(
                     f"PR #{pr.get('number')}: {pr.get('title')} "
-                    f"| Author: {pr.get('user', {}).get('login', '?')} "
-                    f"| Branch: {pr.get('head', {}).get('ref', '?')} "
-                    f"→ {pr.get('base', {}).get('ref', '?')}"
+                    f"| Author: {user.get('login', '?')} "
+                    f"| Branch: {head.get('ref', '?')} "
+                    f"→ {base.get('ref', '?')}"
                 )
             return "\n".join(summaries)
         except Exception as e:
@@ -94,14 +92,18 @@ def create_github_tools(client: GitHubMCPClient) -> list[Tool]:
             pr = safe_api_call(
                 f"{GITHUB_API}/repos/{owner}/{repo}/pulls/{num}"
             )
+            user = pr.get("user") or {}
+            head = pr.get("head") or {}
+            base = pr.get("base") or {}
             return (
                 f"PR #{pr.get('number')}: {pr.get('title')} | "
-                f"Author: {pr.get('user', {}).get('login', 'unknown')} | "
+                f"Author: {user.get('login', 'unknown')} | "
                 f"State: {pr.get('state', 'unknown')} | "
+                f"Branch: {head.get('ref', '?')} → {base.get('ref', '?')} | "
                 f"Files changed: {pr.get('changed_files', 0)} | "
                 f"Additions: +{pr.get('additions', 0)} | "
                 f"Deletions: -{pr.get('deletions', 0)} | "
-                f"Description: {pr.get('body', '(no description)')[:300]}"
+                f"Description: {pr.get('body') or '(no description)'}"
             )
         except Exception as e:
             logger.error("get_pr_details error: %s", e)
@@ -120,9 +122,9 @@ def create_github_tools(client: GitHubMCPClient) -> list[Tool]:
             summaries = []
             for f in files:
                 summaries.append(
-                    f"  [{f.get('status', '?').upper()}] "
-                    f"{f.get('filename')} "
-                    f"(+{f.get('additions', 0)} / -{f.get('deletions', 0)})"
+                    f"  [{(f.get('status') or '?').upper()}] "
+                    f"{f.get('filename') or 'unknown'} "
+                    f"(+{f.get('additions') or 0} / -{f.get('deletions') or 0})"
                 )
             return "Files changed:\n" + "\n".join(summaries)
         except Exception as e:
@@ -141,9 +143,10 @@ def create_github_tools(client: GitHubMCPClient) -> list[Tool]:
                 return "No commits found."
             lines = []
             for c in commits:
-                sha = c.get("sha", "")[:7]
-                msg = c.get("commit", {}).get("message", "").split("\n")[0]
-                author = c.get("commit", {}).get("author", {}).get("name", "?")
+                sha = (c.get("sha") or "")[:7]
+                commit = c.get("commit") or {}
+                msg = (commit.get("message") or "").split("\n")[0]
+                author = (commit.get("author") or {}).get("name") or "?"
                 lines.append(f"  {sha} — {msg} ({author})")
             return "Commits:\n" + "\n".join(lines)
         except Exception as e:
@@ -197,10 +200,11 @@ def create_github_tools(client: GitHubMCPClient) -> list[Tool]:
                 return "No commits found."
             lines = []
             for c in commits:
-                sha = c.get("sha", "")[:7]
-                msg = c.get("commit", {}).get("message", "").split("\n")[0]
-                author = c.get("commit", {}).get("author", {}).get("name", "?")
-                date = c.get("commit", {}).get("author", {}).get("date", "")[:10]
+                sha = (c.get("sha") or "")[:7]
+                commit = c.get("commit") or {}
+                msg = (commit.get("message") or "").split("\n")[0]
+                author = (commit.get("author") or {}).get("name") or "?"
+                date = (commit.get("author") or {}).get("date", "")[:10]
                 lines.append(f"  {sha} [{date}] {msg} ({author})")
             return "Recent commits:\n" + "\n".join(lines)
         except Exception as e:
@@ -217,17 +221,17 @@ def create_github_tools(client: GitHubMCPClient) -> list[Tool]:
         Tool(
             name="get_pull_request_details",
             func=get_pr_details,
-            description="Get details about a PR. Input: PR number only. Example: 12",
+            description="Get details about a PR. Input: PR number only. Example: 13",
         ),
         Tool(
             name="get_pull_request_files",
             func=get_pr_files,
-            description="Get files changed in a PR. Input: PR number only. Example: 12",
+            description="Get files changed in a PR. Input: PR number only. Example: 13",
         ),
         Tool(
             name="get_pull_request_commits",
             func=get_pr_commits,
-            description="Get commits in a PR. Input: PR number only. Example: 12",
+            description="Get commits in a PR. Input: PR number only. Example: 13",
         ),
         Tool(
             name="approve_pull_request",
@@ -235,7 +239,7 @@ def create_github_tools(client: GitHubMCPClient) -> list[Tool]:
             description=(
                 "Approve a pull request. "
                 "Input format: pr_number|comment "
-                "Example: 12|LGTM, small doc change, safe to merge."
+                "Example: 13|LGTM, small doc change, safe to merge."
             ),
         ),
         Tool(
@@ -244,7 +248,7 @@ def create_github_tools(client: GitHubMCPClient) -> list[Tool]:
             description=(
                 "Request changes on a pull request. "
                 "Input format: pr_number|reason "
-                "Example: 12|Missing unit tests."
+                "Example: 13|Missing unit tests."
             ),
         ),
         Tool(
@@ -253,7 +257,7 @@ def create_github_tools(client: GitHubMCPClient) -> list[Tool]:
             description=(
                 "Leave a neutral comment on a pull request. "
                 "Input format: pr_number|comment "
-                "Example: 12|Good approach, consider adding docstrings."
+                "Example: 13|Good approach, consider adding docstrings."
             ),
         ),
         Tool(
