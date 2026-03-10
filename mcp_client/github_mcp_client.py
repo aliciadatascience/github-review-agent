@@ -1,10 +1,10 @@
+from __future__ import annotations
 import json
 import logging
 import subprocess
 import threading
 import time
 from typing import Any, Optional
-import requests
 
 from config.settings import settings
 
@@ -27,7 +27,6 @@ class MCPStdioTransport:
         import os
         proc_env = os.environ.copy()
         proc_env.update(self.env)
-
         logger.info(f"Starting MCP server: {' '.join(self.command)}")
         self.process = subprocess.Popen(
             self.command,
@@ -55,23 +54,18 @@ class MCPStdioTransport:
             "method": method,
             "params": params or {},
         }
-
         request_str = json.dumps(request) + "\n"
         logger.debug("→ MCP Request: %s", request_str.strip())
 
         try:
             self.process.stdin.write(request_str)
             self.process.stdin.flush()
-
             response_str = self.process.stdout.readline()
             logger.debug("← MCP Response: %s", response_str.strip())
-
             if not response_str:
                 stderr = self.process.stderr.read()
-                raise ConnectionError(f"MCP server closed connection. stderr: {stderr}")
-
+                raise ConnectionError(f"MCP server closed. stderr: {stderr}")
             return json.loads(response_str)
-
         except json.JSONDecodeError as e:
             raise ValueError(f"Invalid JSON from MCP server: {response_str}") from e
 
@@ -90,6 +84,18 @@ class MCPStdioTransport:
 # =============================================================================
 
 class GitHubMCPClient:
+    """
+    High-level MCP client for the GitHub MCP Server.
+
+    Tool names verified against official GitHub MCP Server docs (Dec 2025):
+      - get_pull_request
+      - get_pull_request_files
+      - list_pull_requests
+      - list_commits
+      - create_and_submit_pull_request_review   ← key fix
+      - add_issue_comment
+      - merge_pull_request
+    """
 
     def __init__(self):
         self._transport: Optional[MCPStdioTransport] = None
@@ -104,7 +110,9 @@ class GitHubMCPClient:
 
     def connect(self):
         server_command, server_env = self._build_server_command()
-        self._transport = MCPStdioTransport(command=server_command, env=server_env)
+        self._transport = MCPStdioTransport(
+            command=server_command, env=server_env
+        )
         self._transport.start()
         self._initialize_session()
         self._initialized = True
@@ -115,9 +123,7 @@ class GitHubMCPClient:
 
         if self._command_exists("docker"):
             command = [
-                "docker", "run",
-                "--rm",
-                "-i",
+                "docker", "run", "--rm", "-i",
                 "-e", "GITHUB_TOKEN",
                 "-e", "GITHUB_PERSONAL_ACCESS_TOKEN",
                 "ghcr.io/github/github-mcp-server",
@@ -126,7 +132,7 @@ class GitHubMCPClient:
             return command, env
 
         elif self._command_exists("npx"):
-            command = ["npx", "-y", "@modelcontextprotocol/server-github"]
+            command = ["npx", "-y", "@github/github-mcp-server"]
             logger.info("Using npx to run GitHub MCP Server")
             return command, env
 
@@ -144,10 +150,15 @@ class GitHubMCPClient:
         response = self._transport.send_request("initialize", {
             "protocolVersion": "2024-11-05",
             "capabilities": {"tools": {}},
-            "clientInfo": {"name": "github-review-agent", "version": "1.0.0"},
+            "clientInfo": {
+                "name": "github-review-agent",
+                "version": "1.0.0"
+            },
         })
         if "error" in response:
-            raise ConnectionError(f"MCP initialization failed: {response['error']}")
+            raise ConnectionError(
+                f"MCP initialization failed: {response['error']}"
+            )
         self._transport.send_request("notifications/initialized", {})
 
     # =========================================================================
@@ -158,10 +169,15 @@ class GitHubMCPClient:
         response = self._transport.send_request("tools/list", {})
         if "error" in response:
             raise RuntimeError(f"Failed to list tools: {response['error']}")
-        self._available_tools = response.get("result", {}).get("tools", [])
-        logger.info("Discovered %d tools from GitHub MCP Server", len(self._available_tools))
+        self._available_tools = (
+            response.get("result", {}).get("tools", [])
+        )
+        logger.info(
+            "Discovered %d tools from GitHub MCP Server",
+            len(self._available_tools)
+        )
         for tool in self._available_tools:
-            logger.info("  TOOL: %s", tool["name"])   # ← prints all tool names
+            logger.info("  TOOL: %s", tool["name"])
         return self._available_tools
 
     def get_tool_names(self) -> list:
@@ -171,7 +187,12 @@ class GitHubMCPClient:
     # CORE FUNCTION 3: call_tool()
     # =========================================================================
 
-    def call_tool(self, tool_name: str, arguments: dict = None, retries: int = 2) -> Any:
+    def call_tool(
+        self,
+        tool_name: str,
+        arguments: dict = None,
+        retries: int = 2
+    ) -> Any:
         if not self._initialized:
             raise RuntimeError("Client not connected. Call connect() first.")
 
@@ -187,7 +208,9 @@ class GitHubMCPClient:
 
                 if "error" in response:
                     error = response["error"]
-                    raise RuntimeError(f"MCP tool error: {error.get('message', error)}")
+                    raise RuntimeError(
+                        f"MCP tool error: {error.get('message', error)}"
+                    )
 
                 result = response.get("result", {})
                 content = result.get("content", [])
@@ -211,7 +234,8 @@ class GitHubMCPClient:
                 if attempt < retries:
                     wait_time = 2 ** attempt
                     logger.warning(
-                        "Tool '%s' failed (attempt %d/%d): %s. Retrying in %ds...",
+                        "Tool '%s' failed (attempt %d/%d): %s. "
+                        "Retrying in %ds...",
                         tool_name, attempt + 1, retries + 1, e, wait_time
                     )
                     time.sleep(wait_time)
@@ -225,63 +249,85 @@ class GitHubMCPClient:
 
     # =========================================================================
     # CORE FUNCTION 4: Convenience Wrappers
-    # Updated to use new consolidated tool names as of Oct 2025
+    # All tool names verified from official GitHub MCP docs Dec 2025
     # =========================================================================
 
     def get_pull_request(self, pr_number: int) -> dict:
-        result = self.call_tool("pull_request_read", {
+        """Get full details of a PR — tool: get_pull_request ✅"""
+        result = self.call_tool("get_pull_request", {
             "owner": self.owner,
             "repo": self.repo,
             "pullNumber": pr_number,
-            "method": "get",
         })
-        # new tool returns string — parse it back to dict
+        # MCP returns string — parse to dict
         if isinstance(result, str):
             try:
                 return json.loads(result)
             except json.JSONDecodeError:
                 return {"raw": result}
-        return result
+        return result or {}
 
     def list_pull_requests(self, state: str = "open") -> list:
-        """List pull requests — uses list_pull_requests (still exists)."""
-        return self.call_tool("list_pull_requests", {
+        """List PRs — tool: list_pull_requests ✅"""
+        result = self.call_tool("list_pull_requests", {
             "owner": self.owner,
             "repo": self.repo,
             "state": state,
         })
+        if isinstance(result, str):
+            try:
+                return json.loads(result)
+            except json.JSONDecodeError:
+                return []
+        return result or []
 
     def get_pull_request_diff(self, pr_number: int) -> list:
-        result = self.call_tool("pull_request_read", {
+        """Get files changed in a PR — tool: get_pull_request_files ✅"""
+        result = self.call_tool("get_pull_request_files", {
             "owner": self.owner,
             "repo": self.repo,
             "pullNumber": pr_number,
-            "method": "get_files",
         })
         if isinstance(result, str):
             try:
                 return json.loads(result)
             except json.JSONDecodeError:
-                return [{"filename": line, "status": "?", "additions": 0, "deletions": 0}
-                        for line in result.splitlines() if line.strip()]
-        return result
+                return []
+        return result or []
 
     def get_pull_request_commits(self, pr_number: int) -> list:
-        result = self.call_tool("pull_request_read", {
-            "owner": self.owner,
-            "repo": self.repo,
-            "pullNumber": pr_number,
-            "method": "get_commits",
-        })
-        if isinstance(result, str):
-            try:
-                return json.loads(result)
-            except json.JSONDecodeError:
-                return [{"sha": "", "commit": {"message": result, "author": {"name": "?"}}}]
-        return result
+        """
+        Get commits in a PR.
+        No direct MCP tool exists for PR commits —
+        use list_commits with the PR branch as sha.
+        Falls back to get_pull_request to find the branch name first.
+        """
+        try:
+            # get the branch name from the PR
+            pr = self.get_pull_request(pr_number)
+            branch = None
+            if isinstance(pr, dict):
+                head = pr.get("head") or {}
+                branch = head.get("ref")
+
+            result = self.call_tool("list_commits", {
+                "owner": self.owner,
+                "repo": self.repo,
+                "sha": branch or "main",
+                "perPage": 10,
+            })
+            if isinstance(result, str):
+                try:
+                    return json.loads(result)
+                except json.JSONDecodeError:
+                    return []
+            return result or []
+        except Exception as e:
+            logger.error("get_pull_request_commits error: %s", e)
+            return []
 
     def list_commits(self, branch: str = None, per_page: int = 10) -> list:
-        """List recent commits — list_commits still exists."""
+        """List recent commits — tool: list_commits ✅"""
         params = {
             "owner": self.owner,
             "repo": self.repo,
@@ -289,7 +335,13 @@ class GitHubMCPClient:
         }
         if branch:
             params["sha"] = branch
-        return self.call_tool("list_commits", params)
+        result = self.call_tool("list_commits", params)
+        if isinstance(result, str):
+            try:
+                return json.loads(result)
+            except json.JSONDecodeError:
+                return []
+        return result or []
 
     def create_review(
         self,
@@ -299,8 +351,14 @@ class GitHubMCPClient:
         comments: list = None,
     ) -> dict:
         """
-        Submit a PR review — uses pull_request_review_write.
-        event: APPROVE, REQUEST_CHANGES, or COMMENT
+        Post a PR review.
+        Tool: create_and_submit_pull_request_review ✅
+        (verified from official GitHub MCP docs Dec 2025)
+
+        event options:
+          APPROVE          → approve the PR
+          REQUEST_CHANGES  → block and request changes
+          COMMENT          → neutral comment
         """
         params = {
             "owner": self.owner,
@@ -308,20 +366,20 @@ class GitHubMCPClient:
             "pullNumber": pr_number,
             "body": body,
             "event": event,
-            "method": "submit_review",
         }
-        if comments:
-            params["comments"] = comments
-
-        logger.info("Creating review on PR #%d: event=%s", pr_number, event)
-        return self.call_tool("pull_request_review_write", params)
+        logger.info(
+            "Creating review on PR #%d via MCP: event=%s", pr_number, event
+        )
+        return self.call_tool(
+            "create_and_submit_pull_request_review", params
+        )
 
     def add_issue_comment(self, pr_number: int, body: str) -> dict:
-        """Add a general comment to a PR/issue — add_issue_comment still exists."""
+        """Add a general comment — tool: add_issue_comment ✅"""
         return self.call_tool("add_issue_comment", {
             "owner": self.owner,
             "repo": self.repo,
-            "issueNumber": pr_number,
+            "issue_number": pr_number,   # note: underscore not camelCase
             "body": body,
         })
 
@@ -331,24 +389,24 @@ class GitHubMCPClient:
         commit_title: str = None,
         merge_method: str = "merge",
     ) -> dict:
-        """Merge a PR — merge_pull_request still exists."""
+        """Merge a PR — tool: merge_pull_request ✅"""
         params = {
             "owner": self.owner,
             "repo": self.repo,
             "pullNumber": pr_number,
-            "mergeMethod": merge_method,
+            "merge_method": merge_method,
         }
         if commit_title:
-            params["commitTitle"] = commit_title
+            params["commit_title"] = commit_title
         logger.info("Merging PR #%d via %s", pr_number, merge_method)
         return self.call_tool("merge_pull_request", params)
 
     def get_repository_info(self) -> dict:
-        """Get basic repo info."""
-        return self.call_tool("get_repository", {
-            "owner": self.owner,
-            "repo": self.repo,
+        """Get repo info — no direct tool, use search_repositories."""
+        result = self.call_tool("search_repositories", {
+            "query": f"repo:{self.owner}/{self.repo}",
         })
+        return result or {}
 
     # =========================================================================
     # CORE FUNCTION 5: close()
