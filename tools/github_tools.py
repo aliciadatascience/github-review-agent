@@ -159,31 +159,61 @@ def create_github_tools(client: GitHubMCPClient) -> list[Tool]:
             parts = input_str.split("|", 1)
             pr_number = clean_int(parts[0])
             body = parts[1].strip() if len(parts) > 1 else "✅ Approved by AI Review Agent."
-            client.create_review(pr_number=pr_number, body=body, event="APPROVE")
+            owner, repo = owner_repo()
+            url = f"{GITHUB_API}/repos/{owner}/{repo}/pulls/{pr_number}/reviews"
+            response = requests.post(
+                url,
+                headers=gh_headers(),
+                json={"body": body, "event": "APPROVE"},
+                timeout=15,
+            )
+            logger.info("Approve PR API → status %d", response.status_code)
+            if response.status_code not in (200, 201):
+                return f"Error approving PR: HTTP {response.status_code} — {response.text[:200]}"
             return f"✅ PR #{pr_number} approved: {body}"
         except Exception as e:
             logger.error("approve_pr error: %s", e)
             return f"Error approving PR: {e}"
-
+    
     # ── Tool: Request changes ─────────────────────────────────────────
     def request_changes(input_str: str) -> str:
         try:
             parts = input_str.split("|", 1)
             pr_number = clean_int(parts[0])
             body = parts[1].strip() if len(parts) > 1 else "Changes requested by AI Review Agent."
-            client.create_review(pr_number=pr_number, body=body, event="REQUEST_CHANGES")
+            owner, repo = owner_repo()
+            url = f"{GITHUB_API}/repos/{owner}/{repo}/pulls/{pr_number}/reviews"
+            response = requests.post(
+                url,
+                headers=gh_headers(),
+                json={"body": body, "event": "REQUEST_CHANGES"},
+                timeout=15,
+            )
+            logger.info("Request changes API → status %d", response.status_code)
+            if response.status_code not in (200, 201):
+                return f"Error requesting changes: HTTP {response.status_code} — {response.text[:200]}"
             return f"❌ Changes requested on PR #{pr_number}: {body}"
         except Exception as e:
             logger.error("request_changes error: %s", e)
             return f"Error requesting changes: {e}"
-
+    
     # ── Tool: Leave comment ───────────────────────────────────────────
     def leave_comment(input_str: str) -> str:
         try:
             parts = input_str.split("|", 1)
             pr_number = clean_int(parts[0])
             body = parts[1].strip() if len(parts) > 1 else "Reviewed by AI Agent."
-            client.create_review(pr_number=pr_number, body=body, event="COMMENT")
+            owner, repo = owner_repo()
+            url = f"{GITHUB_API}/repos/{owner}/{repo}/pulls/{pr_number}/reviews"
+            response = requests.post(
+                url,
+                headers=gh_headers(),
+                json={"body": body, "event": "COMMENT"},
+                timeout=15,
+            )
+            logger.info("Leave comment API → status %d", response.status_code)
+            if response.status_code not in (200, 201):
+                return f"Error leaving comment: HTTP {response.status_code} — {response.text[:200]}"
             return f"💬 Comment left on PR #{pr_number}: {body}"
         except Exception as e:
             logger.error("leave_comment error: %s", e)
